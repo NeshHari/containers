@@ -1,0 +1,1 @@
+{"name":"dockerfile-language-server","links":{"bin":{"docker-langserver":"node_modules/.bin/docker-langserver"},"opt":{},"share":{}},"metrics":{"start_time":1743831108702,"completion_time":1743831111612},"secondary_sources":[],"primary_source":{"type":"registry+v1","id":"pkg:npm/dockerfile-language-server-nodejs@0.13.0"},"schema_version":"1.1"}

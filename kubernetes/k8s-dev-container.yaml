@@ -1,0 +1,36 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dev-container
+  namespace: dev-environment
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: dev-container } }
+  template:
+    metadata: { labels: { app: dev-container } }
+    spec:
+      containers:
+      - name: dev-container
+        image: archlinux:latest # Consider a specific version tag e.g., archlinux:base-devel-20231001.0.168344
+        resources:
+          requests: { memory: "768Mi", cpu: "400m" }
+          limits: { memory: "1.5Gi", cpu: "1000m" }
+        command: ["/entrypoint.sh"]
+        env:
+        - { name: CONFIG_SERVER, value: "config-server" }
+        - { name: TERM, value: "xterm-256color" }
+        - { name: SHELL, value: "/usr/bin/bash" }
+        tty: true
+        stdin: true
+        volumeMounts:
+        - { name: entrypoint-script, mountPath: /entrypoint.sh, subPath: entrypoint.sh }
+        - { name: fetch-script, mountPath: /fetch-configs.sh, subPath: fetch-configs.sh }
+        # Add mounts for caches here if desired, e.g.:
+        # - { name: pacman-cache-volume, mountPath: /var/cache/pacman/pkg }
+        # - { name: nvim-share-volume, mountPath: /home/nesh/.local/share/nvim }
+      volumes:
+      - { name: entrypoint-script, configMap: { name: entrypoint-script, defaultMode: 0755 } }
+      - { name: fetch-script, configMap: { name: fetch-script, defaultMode: 0755 } }
+      # Define cache volumes here if mounting them, e.g., using hostPath or emptyDir:
+      # - { name: pacman-cache-volume, hostPath: { path: /home/nesh/docker/kubernetes/arch-packages/pacman-cache } } # Example: hostPath (use with caution)
+      # - { name: nvim-share-volume, emptyDir: {} } # Example: emptyDir (non-persistent)

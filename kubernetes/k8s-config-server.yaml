@@ -1,0 +1,114 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: config-server
+  namespace: dev-environment
+spec:
+  selector:
+    app: config-server
+  ports:
+  - port: 80
+    targetPort: 80
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: config-server
+  namespace: dev-environment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: config-server
+  template:
+    metadata:
+      labels:
+        app: config-server
+    spec:
+      containers:
+      - name: config-server
+        image: nginx:alpine
+        resources:
+          requests: { memory: "64Mi", cpu: "75m" }
+          limits: { memory: "128Mi", cpu: "150m" }
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+          echo "Starting Nginx config server setup..."
+          # Create directories first
+          mkdir -p /usr/share/nginx/html/configs/fish/functions
+          mkdir -p /usr/share/nginx/html/configs/fish/completions
+          mkdir -p /usr/share/nginx/html/configs/fish/conf.d
+          mkdir -p /usr/share/nginx/html/configs/nvim/lua/config
+          mkdir -p /usr/share/nginx/html/configs/nvim/lua/plugins
+
+          echo "Waiting 5s for volumes to mount..."
+          sleep 5
+
+          # Copy base files if they exist in volume mount
+          echo "Copying base files..."
+          [ -f "/config-files/health.txt" ] && cp /config-files/health.txt /usr/share/nginx/html/ || echo "INFO: health.txt not mounted"
+          [ -f "/config-files/starship.toml" ] && cp /config-files/starship.toml /usr/share/nginx/html/configs/ || echo "INFO: starship.toml not mounted"
+
+          # Copy fish config if available
+          echo "Copying fish files..."
+          [ -f "/config-files/config.fish" ] && cp /config-files/config.fish /usr/share/nginx/html/configs/fish/ || echo "INFO: config.fish not mounted"
+          [ -f "/config-files/fish_variables" ] && cp /config-files/fish_variables /usr/share/nginx/html/configs/fish/ || echo "INFO: fish_variables not mounted"
+          # FIX: Remove check, attempt copy unconditionally
+          echo "Attempting to copy fish functions..." && cp -Lr /config-files/functions/. /usr/share/nginx/html/configs/fish/functions/ && echo "  ✓ Copied fish functions" || echo "  INFO: Failed to copy fish functions or dir empty/missing"
+          echo "Attempting to copy fish completions..." && cp -Lr /config-files/completions/. /usr/share/nginx/html/configs/fish/completions/ && echo "  ✓ Copied fish completions" || echo "  INFO: Failed to copy fish completions or dir empty/missing"
+          echo "Attempting to copy fish conf.d..." && cp -Lr /config-files/confd/. /usr/share/nginx/html/configs/fish/conf.d/ && echo "  ✓ Copied fish conf.d" || echo "  INFO: Failed to copy fish conf.d or dir empty/missing"
+
+          # Copy neovim config if available
+          echo "Copying nvim files..."
+          [ -f "/config-files/init.lua" ] && cp /config-files/init.lua /usr/share/nginx/html/configs/nvim/ || echo "INFO: init.lua not mounted"
+          [ -f "/config-files/lazy-lock.json" ] && cp /config-files/lazy-lock.json /usr/share/nginx/html/configs/nvim/ || echo "INFO: lazy-lock.json not mounted"
+          # FIX: Remove check, attempt copy unconditionally
+          echo "Attempting to copy nvim config dir..." && cp -Lr /config-files/config/. /usr/share/nginx/html/configs/nvim/lua/config/ && echo "  ✓ Copied nvim config dir" || echo "  INFO: Failed to copy nvim config dir or dir empty/missing"
+          echo "Attempting to copy nvim plugins dir..." && cp -Lr /config-files/plugins/. /usr/share/nginx/html/configs/nvim/lua/plugins/ && echo "  ✓ Copied nvim plugins dir" || echo "  INFO: Failed to copy nvim plugins dir or dir empty/missing"
+
+          # Configure Nginx for directory listing and serving files
+          echo 'server { listen 80; server_name localhost; root /usr/share/nginx/html; autoindex on; charset utf-8; location / { try_files $uri $uri/ =404; } }' > /etc/nginx/conf.d/default.conf
+
+          # Debug info - List files actually copied
+          echo "Contents of /usr/share/nginx/html/configs served by Nginx:"
+          find /usr/share/nginx/html/configs -type f | sort
+
+          # Start NGINX
+          echo "Starting Nginx..."
+          nginx -g "daemon off;"
+        ports:
+        - containerPort: 80
+        readinessProbe:
+          httpGet: { path: /health.txt, port: 80 }
+          initialDelaySeconds: 8 # Keep initial delay slightly higher due to sleep
+          periodSeconds: 5
+          failureThreshold: 3
+        volumeMounts:
+        - { name: health-check-volume, mountPath: /config-files/health.txt, subPath: health.txt }
+        - { name: starship-config-volume, mountPath: /config-files/starship.toml, subPath: starship.toml }
+        # Fish mounts
+        - { name: fish-config-volume, mountPath: /config-files/config.fish, subPath: config.fish }
+        - { name: fish-variables-volume, mountPath: /config-files/fish_variables, subPath: fish_variables }
+        - { name: fish-functions-volume, mountPath: /config-files/functions }
+        - { name: fish-completions-volume, mountPath: /config-files/completions }
+        - { name: fish-confd-volume, mountPath: /config-files/confd } # Note mount path
+        # Nvim mounts
+        - { name: nvim-init-volume, mountPath: /config-files/init.lua, subPath: init.lua }
+        - { name: nvim-lazy-lock-volume, mountPath: /config-files/lazy-lock.json, subPath: lazy-lock.json }
+        - { name: nvim-config-volume, mountPath: /config-files/config } # Mounts CM 'nvim-config-files' here
+        - { name: nvim-plugins-volume, mountPath: /config-files/plugins } # Mounts CM 'nvim-plugin-files' here
+      volumes:
+      - { name: health-check-volume, configMap: { name: health-check } }
+      - { name: starship-config-volume, configMap: { name: starship-config, optional: true } }
+      # Fish volumes
+      - { name: fish-config-volume, configMap: { name: fish-config, optional: true } }
+      - { name: fish-variables-volume, configMap: { name: fish-variables, optional: true } }
+      - { name: fish-functions-volume, configMap: { name: fish-functions, optional: true } }
+      - { name: fish-completions-volume, configMap: { name: fish-completions, optional: true } }
+      - { name: fish-confd-volume, configMap: { name: fish-confd, optional: true } } # Corresponds to mountPath /config-files/confd
+      # Nvim volumes
+      - { name: nvim-init-volume, configMap: { name: nvim-init, optional: true } }
+      - { name: nvim-lazy-lock-volume, configMap: { name: nvim-lazy-lock, optional: true } }
+      - { name: nvim-config-volume, configMap: { name: nvim-config-files, optional: true } } # Corresponds to mountPath /config-files/config
+      - { name: nvim-plugins-volume, configMap: { name: nvim-plugin-files, optional: true } } # Corresponds to mountPath /config-files/plugins

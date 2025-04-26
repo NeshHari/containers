@@ -11,7 +11,14 @@ return {
 		config = function()
 			local mason_lspconfig = require("mason-lspconfig")
 			mason_lspconfig.setup({
-				ensure_installed = { "lua_ls", "bashls", "cssls", "docker_compose_language_service", "dockerls" },
+				ensure_installed = {
+					"lua_ls",
+					"bashls",
+					"cssls",
+					"docker_compose_language_service",
+					"dockerls",
+					"tailwindcss",
+				},
 				automatic_installtion = false,
 			})
 		end,

@@ -1,0 +1,35 @@
+name: Auto Generate Vimdoc
+on:
+  push:
+    branches: [main]
+    paths:
+      - README.md
+      - .github/workflows/vimdocgen.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  docs:
+    runs-on: ubuntu-latest
+    name: Convert Markdown to Vimdoc
+    steps:
+      - uses: actions/checkout@v4
+      - uses: kdheepak/panvimdoc@main
+        with:
+          vimdoc: "copilot"
+          version: "NVIM v0.11.0"
+          description: "Fully featured & enhanced replacement for copilot.vim complete with API for interacting with Github Copilot"
+          titledatepattern: "%d %B, %Y"
+          toc: false
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v7
+        with:
+          add-paths: |
+            doc/*
+          author: github-actions[bot] <github-actions[bot]@users.noreply.github.com>
+          base: master
+          branch: create-pull-request/autogenerate-vimdoc
+          commit-message: "docs: update vimdocs"
+          title: "Update Vimdocs"

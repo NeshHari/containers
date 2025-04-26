@@ -11,6 +11,6 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
-    "@microsoft/compose-language-service": "^0.3.0"
+    "@microsoft/compose-language-service": "^0.4.0"
   }
 }

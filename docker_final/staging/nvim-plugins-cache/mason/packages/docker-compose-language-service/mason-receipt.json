@@ -1,0 +1,1 @@
+{"links":{"bin":{"docker-compose-langserver":"node_modules/.bin/docker-compose-langserver"},"opt":{},"share":{}},"name":"docker-compose-language-service","metrics":{"start_time":1745041713793,"completion_time":1745041716402},"primary_source":{"id":"pkg:npm/%40microsoft/compose-language-service@0.4.0","type":"registry+v1"},"secondary_sources":[],"schema_version":"1.1"}

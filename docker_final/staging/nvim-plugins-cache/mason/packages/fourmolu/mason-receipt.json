@@ -1,0 +1,1 @@
+{"metrics":{"start_time":1740290588545,"completion_time":1740290642590},"links":{"bin":{"fourmolu":"fourmolu-0.18.0.0-linux-x86_64"},"opt":{},"share":{}},"secondary_sources":[],"schema_version":"1.1","name":"fourmolu","primary_source":{"type":"registry+v1","id":"pkg:github\/fourmolu\/fourmolu@v0.18.0.0"}}

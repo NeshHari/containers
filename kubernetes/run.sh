@@ -1,9 +1,5 @@
 #!/bin/bash
 
-echo "=== Kubernetes Dev Environment Setup ==="
-echo "Date: $(date '+%Y-%m-%d %H:%M:%S %Z')"
-echo "User: $(whoami)"
-
 # --- Configuration Variables ---
 HOST_FISH_CONFIG_DIR="$HOME/.config/fish"
 HOST_NVIM_CONFIG_DIR="$HOME/.config/nvim"
@@ -22,23 +18,17 @@ PRESERVED_DIRS=("$LOCAL_ARCH_CACHE" "$LOCAL_NVIM_RUNTIME" "$LOCAL_NVIM_PLUGINS" 
 PRESERVED_FILES=("$LOCAL_STARSHIP_FILE") # Add files to preserve
 
 # --- Prerequisite Checks ---
-echo -e "\n[PRE-CHECKS]"
 if ! command -v minikube &> /dev/null; then echo "ERROR: Minikube not installed."; exit 1; fi
 if ! command -v kubectl &> /dev/null; then echo "ERROR: kubectl not installed."; exit 1; fi
 if ! command -v docker &> /dev/null; then echo "ERROR: Docker not installed or running."; exit 1; fi
-echo "✓ Prerequisites met."
 
 # Ensure minikube is running
 if ! minikube status &> /dev/null; then
-    echo "Starting minikube..."
     minikube start
-else
-    echo "Minikube is running."
 fi
 kubectl config use-context minikube
 
 # --- Step 1: Cleanup ---
-echo -e "\n[1/7] Cleaning current directory (preserving run.sh, specific configs, and caches)..."
 # Find and remove files except run.sh and preserved files/dirs
 find . -maxdepth 1 -type f -not -name "run.sh" -not -name "$(basename "$LOCAL_STARSHIP_FILE")" -not -name "." -exec rm -f {} \;
 
@@ -53,18 +43,13 @@ for item in $(find . -maxdepth 1 -mindepth 1 -type d -not -name ".git"); do
         fi
     done
     if [ "$should_preserve" = false ]; then
-        echo "Removing non-preserved directory: $item"
         rm -rf "$item"
     fi
 done
-echo "✓ Cleanup complete."
 
 # --- Step 2: Prepare Local Configs and Caches ---
-echo -e "\n[2/7] Preparing local configurations and caches..."
-
 # Fish Config
 if [ ! -d "$LOCAL_FISH_DIR" ]; then
-    echo "Copying fish config from host..."
     mkdir -p "$LOCAL_FISH_DIR"/{functions,completions,conf.d}
     if [ -f "$HOST_FISH_CONFIG_DIR/config.fish" ]; then
         cp "$HOST_FISH_CONFIG_DIR/config.fish" "$LOCAL_FISH_DIR/"
@@ -77,36 +62,28 @@ if [ ! -d "$LOCAL_FISH_DIR" ]; then
         mv "$TMP_CONFIG" "$LOCAL_FISH_DIR/config.fish"
         chmod 644 "$LOCAL_FISH_DIR/config.fish"
     else
-        echo "  WARN: Host config.fish not found, creating minimal."
         echo -e "# Minimal fish config\nset -g fish_greeting ''" > "$LOCAL_FISH_DIR/config.fish"
     fi
     [ -f "$HOST_FISH_CONFIG_DIR/fish_variables" ] && cp "$HOST_FISH_CONFIG_DIR/fish_variables" "$LOCAL_FISH_DIR/"
     [ -d "$HOST_FISH_CONFIG_DIR/functions" ] && cp -a "$HOST_FISH_CONFIG_DIR/functions/." "$LOCAL_FISH_DIR/functions/" 2>/dev/null
     [ -d "$HOST_FISH_CONFIG_DIR/completions" ] && cp -a "$HOST_FISH_CONFIG_DIR/completions/." "$LOCAL_FISH_DIR/completions/" 2>/dev/null
     [ -d "$HOST_FISH_CONFIG_DIR/conf.d" ] && cp -a "$HOST_FISH_CONFIG_DIR/conf.d/." "$LOCAL_FISH_DIR/conf.d/" 2>/dev/null
-else
-    echo "Local fish config '$LOCAL_FISH_DIR' exists, skipping copy."
 fi
 
 # Nvim Config
 if [ ! -d "$LOCAL_NVIM_DIR" ]; then
-    echo "Copying nvim config from host..."
     mkdir -p "$LOCAL_NVIM_DIR"/{lua/config,lua/plugins}
     [ -f "$HOST_NVIM_CONFIG_DIR/init.lua" ] && cp "$HOST_NVIM_CONFIG_DIR/init.lua" "$LOCAL_NVIM_DIR/"
     [ -f "$HOST_NVIM_CONFIG_DIR/lazy-lock.json" ] && cp "$HOST_NVIM_CONFIG_DIR/lazy-lock.json" "$LOCAL_NVIM_DIR/"
     [ -d "$HOST_NVIM_CONFIG_DIR/lua/config" ] && cp -a "$HOST_NVIM_CONFIG_DIR/lua/config/." "$LOCAL_NVIM_DIR/lua/config/" 2>/dev/null
     [ -d "$HOST_NVIM_CONFIG_DIR/lua/plugins" ] && cp -a "$HOST_NVIM_CONFIG_DIR/lua/plugins/." "$LOCAL_NVIM_DIR/lua/plugins/" 2>/dev/null
-else
-    echo "Local nvim config '$LOCAL_NVIM_DIR' exists, skipping copy."
 fi
 
 # Starship Config
 if [ ! -f "$LOCAL_STARSHIP_FILE" ]; then
-    echo "Copying starship config from host..."
     if [ -f "$HOST_STARSHIP_CONFIG" ]; then
         cp "$HOST_STARSHIP_CONFIG" "$LOCAL_STARSHIP_FILE"
     else
-        echo "  WARN: Host starship.toml not found, creating minimal."
         cat > "$LOCAL_STARSHIP_FILE" << EOF
 # Minimal starship config
 format = "\$directory\$git_branch\$git_status\$character"; add_newline = true
@@ -114,88 +91,48 @@ format = "\$directory\$git_branch\$git_status\$character"; add_newline = true
 [directory]; truncation_length = 3
 EOF
     fi
-else
-    echo "Local starship config '$LOCAL_STARSHIP_FILE' exists, skipping copy."
 fi
 
 # Arch Packages Cache
 if [ ! -d "$LOCAL_ARCH_CACHE" ]; then
-    echo "Downloading Arch Linux packages for cache..."
     mkdir -p "$LOCAL_ARCH_CACHE/pacman-cache"
     if docker run --rm hello-world > /dev/null 2>&1; then DOCKER_CMD="docker"; else DOCKER_CMD="sudo docker"; fi
     $DOCKER_CMD run --rm --user root \
         -v "$(pwd)/$LOCAL_ARCH_CACHE:/arch-packages" \
         archlinux:latest bash -c '
-            echo ">>> Updating keyring and package lists..."
             pacman -Sy --noconfirm --needed archlinux-keyring &> /dev/null && pacman-key --init &> /dev/null && pacman-key --populate archlinux &> /dev/null
             pacman -Sy --noconfirm &> /dev/null
-            echo ">>> Downloading packages..."
             pacman -S --noconfirm --downloadonly --cachedir=/arch-packages/pacman-cache \
                 fish neovim git sudo \
                 eza zoxide atuin dust bat fd ripgrep starship \
                 gcc npm nodejs python python-pip unzip wget curl \
                 base-devel # Often useful for nvim plugins
-            echo ">>> Package download complete."
     ' || echo "ERROR: Failed to download Arch packages. Check Docker permissions or network."
-else
-    echo "Local Arch package cache '$LOCAL_ARCH_CACHE' exists, skipping download."
 fi
 
 # Nvim Runtime Cache
 if [ ! -d "$LOCAL_NVIM_RUNTIME" ]; then
-    echo "Extracting Neovim runtime files for cache..."
     mkdir -p "$LOCAL_NVIM_RUNTIME"
     if docker run --rm hello-world > /dev/null 2>&1; then DOCKER_CMD="docker"; else DOCKER_CMD="sudo docker"; fi
     $DOCKER_CMD run --rm --user root \
         -v "$(pwd)/$LOCAL_NVIM_RUNTIME:/nvim-runtime" \
         archlinux:latest bash -c '
             pacman -Sy --noconfirm neovim > /dev/null
-            echo ">>> Copying nvim runtime..."
-            cp -a /usr/share/nvim/runtime/. /nvim-runtime/ # Use cp -a
-            echo ">>> Runtime copy complete."
+            cp -a /usr/share/nvim/runtime/. /nvim-runtime/
     ' || echo "ERROR: Failed to extract Neovim runtime. Check Docker permissions."
-else
-    echo "Local Neovim runtime cache '$LOCAL_NVIM_RUNTIME' exists, skipping extraction."
 fi
 
 # Nvim Plugins Cache (Copy from host ~/.local/share/nvim)
 if [ ! -d "$LOCAL_NVIM_PLUGINS" ]; then
-    echo "Copying Neovim plugins cache from host ($HOST_NVIM_SHARE_DIR)..."
     if [ -d "$HOST_NVIM_SHARE_DIR" ]; then
-        # Use cp -a for better preservation of links/permissions
         cp -a "$HOST_NVIM_SHARE_DIR/." "$LOCAL_NVIM_PLUGINS/" 2>/dev/null
-        echo "  Removing .git directories from plugin cache..."
         find "$LOCAL_NVIM_PLUGINS" -type d -name ".git" -exec rm -rf {} \; 2>/dev/null || true
-        echo "  ✓ Copied Neovim plugins cache."
     else
-        echo "  WARN: Host nvim share directory ($HOST_NVIM_SHARE_DIR) not found. Plugin cache will be empty."
         mkdir -p "$LOCAL_NVIM_PLUGINS" # Create empty dir
     fi
-else
-    echo "Local Neovim plugin cache '$LOCAL_NVIM_PLUGINS' exists, skipping copy."
 fi
-echo "✓ Preparation of local configs and caches complete."
 
-
-# --- Step 3: Verify Local Files ---
-echo -e "\n[3/7] Verifying local files prepared for Kubernetes..."
-echo "Fish config files: $(find "$LOCAL_FISH_DIR" -type f | wc -l 2>/dev/null || echo 0) files"
-echo "Neovim config files: $(find "$LOCAL_NVIM_DIR" -type f | wc -l 2>/dev/null || echo 0) files"
-echo "Starship config: $(ls -la "$LOCAL_STARSHIP_FILE" 2>/dev/null || echo '  Not found')"
-echo "Arch package cache: $(du -sh "$LOCAL_ARCH_CACHE" 2>/dev/null || echo '  Not found')"
-echo "Nvim runtime cache: $(du -sh "$LOCAL_NVIM_RUNTIME" 2>/dev/null || echo '  Not found')"
-# Verify the nvim plugins cache directory that will be mounted
-if [ -d "$LOCAL_NVIM_PLUGINS" ]; then
-    echo "Nvim plugins cache: $(du -sh "$LOCAL_NVIM_PLUGINS")"
-else
-    echo "Nvim plugins cache: Not found (will be created empty)"
-fi
-echo "✓ Verification complete."
-
-
-# --- Step 4: Create Kubernetes Resource Definitions ---
-echo -e "\n[4/7] Creating Kubernetes resource definitions..."
-
+# --- Step 3: Create Kubernetes Resource Definitions ---
 # Create namespace definition
 cat > k8s-namespace.yaml << EOF
 apiVersion: v1
@@ -204,75 +141,61 @@ metadata:
   name: dev-environment
 EOF
 
-# Create fetch-configs script definition (unchanged logic, just for config files)
+# Create fetch-configs script definition
 cat > fetch-configs.sh << 'EOF'
 #!/bin/bash
 # Fetches *configuration* files (nvim config, fish config, starship) from the config-server.
 # Nvim *plugins* are expected to be copied from the hostPath volume mount during entrypoint.
 
 CONFIG_SERVER=${CONFIG_SERVER:-config-server}
-echo "=== Fetching configs from ${CONFIG_SERVER} ==="
 
 # Create target directories
 mkdir -p /home/nesh/.config/fish/{functions,completions,conf.d}
 mkdir -p /home/nesh/.config/nvim/lua/{config,plugins}
-# Base share dir should already exist from entrypoint script handling plugin cache copy
-# mkdir -p /home/nesh/.local/share/nvim
 
 # Test connection
-echo "Testing connection to config-server..."
 if curl -s --connect-timeout 5 --retry 3 --retry-delay 2 --retry-max-time 30 http://${CONFIG_SERVER}/health.txt; then
-    echo "✓ Connected to config-server successfully"
-
     # --- FISH CONFIG ---
-    echo "Downloading fish config..."
-    curl -fsS "http://${CONFIG_SERVER}/configs/fish/config.fish" -o /home/nesh/.config/fish/config.fish && echo "  ✓ Downloaded config.fish" || echo "  × Failed config.fish"
+    curl -fsS "http://${CONFIG_SERVER}/configs/fish/config.fish" -o /home/nesh/.config/fish/config.fish 2>/dev/null
     if curl -s --head --fail "http://${CONFIG_SERVER}/configs/fish/fish_variables" > /dev/null; then
-      curl -fsS "http://${CONFIG_SERVER}/configs/fish/fish_variables" -o /home/nesh/.config/fish/fish_variables && echo "  ✓ Downloaded fish_variables" || echo "  × Failed fish_variables"
+      curl -fsS "http://${CONFIG_SERVER}/configs/fish/fish_variables" -o /home/nesh/.config/fish/fish_variables 2>/dev/null
     fi
 
     download_files() {
         local type=$1; local remote_dir=$2; local local_dir=$3; local extension=$4
         mkdir -p "$local_dir"
         local tmp_list_file="/tmp/${type}-list.html"
-        echo "  Downloading $type files from $remote_dir ..."
-        if ! curl -fsS "$remote_dir" -o "$tmp_list_file"; then echo "    × Failed get listing for $type"; rm -f "$tmp_list_file"; return 1; fi
-        if ! grep -q 'href="[^"]*\.'$extension'"' "$tmp_list_file"; then echo "    ! No .$extension files found in listing for $type"; rm -f "$tmp_list_file"; return 1; fi
-        local downloaded_count=0; local failed_count=0
+        curl -fsS "$remote_dir" -o "$tmp_list_file" 2>/dev/null || { rm -f "$tmp_list_file"; return 1; }
+        if ! grep -q 'href="[^"]*\.'$extension'"' "$tmp_list_file"; then { rm -f "$tmp_list_file"; return 1; }; fi
         grep -o 'href="[^"]*\.'$extension'"' "$tmp_list_file" | sed 's/href="//;s/"$//' | while IFS= read -r file_href; do
             local decoded_href=$(printf '%b' "${file_href//%/\\x}"); local filename=$(basename "$decoded_href")
             if [[ "$filename" == *.$extension ]]; then
                 local remote_url="${remote_dir}${file_href}"; local local_path="${local_dir}/${filename}"
-                if curl -fsS "$remote_url" -o "$local_path"; then downloaded_count=$((downloaded_count + 1)); else echo "      × Failed $remote_url"; failed_count=$((failed_count + 1)); fi
+                curl -fsS "$remote_url" -o "$local_path" 2>/dev/null
             fi
         done
-        if [ "$downloaded_count" -gt 0 ]; then echo "    ✓ Downloaded $downloaded_count .$extension file(s) for $type."; fi
-        if [ "$failed_count" -gt 0 ]; then echo "    ! Failed $failed_count .$extension file(s) for $type."; rm -f "$tmp_list_file"; return 1; fi
-        rm -f "$tmp_list_file"; return 0
+        rm -f "$tmp_list_file"
+        return 0
     }
+
     download_files "fish-functions" "http://${CONFIG_SERVER}/configs/fish/functions/" "/home/nesh/.config/fish/functions" "fish"
     download_files "fish-completions" "http://${CONFIG_SERVER}/configs/fish/completions/" "/home/nesh/.config/fish/completions" "fish"
     download_files "fish-conf.d" "http://${CONFIG_SERVER}/configs/fish/conf.d/" "/home/nesh/.config/fish/conf.d" "fish"
 
     # --- STARSHIP CONFIG ---
-    echo "Downloading starship config..."
-    curl -fsS "http://${CONFIG_SERVER}/configs/starship.toml" -o /home/nesh/.config/starship.toml && echo "✓ Downloaded starship config" || echo "× Failed starship config"
+    curl -fsS "http://${CONFIG_SERVER}/configs/starship.toml" -o /home/nesh/.config/starship.toml 2>/dev/null
 
     # --- NEOVIM CONFIG ---
-    echo "Downloading NeoVim config files..."
     if curl -s --head --fail "http://${CONFIG_SERVER}/configs/nvim/init.lua" > /dev/null; then
-        curl -fsS "http://${CONFIG_SERVER}/configs/nvim/init.lua" -o /home/nesh/.config/nvim/init.lua && echo "  ✓ Downloaded init.lua"
-    else echo "  × init.lua not available"; fi
+        curl -fsS "http://${CONFIG_SERVER}/configs/nvim/init.lua" -o /home/nesh/.config/nvim/init.lua 2>/dev/null
+    fi
     if curl -s --head --fail "http://${CONFIG_SERVER}/configs/nvim/lazy-lock.json" > /dev/null; then
-        curl -fsS "http://${CONFIG_SERVER}/configs/nvim/lazy-lock.json" -o /home/nesh/.config/nvim/lazy-lock.json && echo "  ✓ Downloaded lazy-lock.json"
-    else echo "  × lazy-lock.json not available"; fi
+        curl -fsS "http://${CONFIG_SERVER}/configs/nvim/lazy-lock.json" -o /home/nesh/.config/nvim/lazy-lock.json 2>/dev/null
+    fi
     download_files "nvim-config" "http://${CONFIG_SERVER}/configs/nvim/lua/config/" "/home/nesh/.config/nvim/lua/config" "lua"
     download_files "nvim-plugins" "http://${CONFIG_SERVER}/configs/nvim/lua/plugins/" "/home/nesh/.config/nvim/lua/plugins" "lua"
-
-    echo "✓ Config file transfer complete"
 else
-    # Fallback logic (unchanged)
-    echo "× Failed to connect to config-server. Creating minimal fallback configs..."
+    # Fallback logic
     cat > /home/nesh/.config/fish/config.fish << 'END'
 # Minimal fish config (fallback)
 set fish_greeting "Dev Container ready (minimal config)!"; function fish_prompt; echo -n (set_color blue)(prompt_pwd)(set_color normal) '❯ '; end; set -gx PATH $HOME/.local/bin $PATH; alias ls="ls --color=auto"; alias ll="ls -l --color=auto";
@@ -298,15 +221,13 @@ fi
 
 # Fix permissions
 chown -R nesh:nesh /home/nesh/.config /home/nesh/.local 2>/dev/null || true
-
-echo "=== Config Download/Fallback Complete ==="
 EOF
 chmod +x fetch-configs.sh
 
 # Create health check file
 echo "Config server operational ($(date -u +"%Y-%m-%d %H:%M:%S"))" > health.txt
 
-# Create config server definition (largely unchanged, still serves config files)
+# Create config server definition
 cat > k8s-config-server.yaml << EOF
 apiVersion: v1
 kind: Service
@@ -329,28 +250,22 @@ spec:
         command: ["/bin/sh", "-c"]
         args:
         - |
-          echo "Starting Nginx config server setup..."
           mkdir -p /usr/share/nginx/html/configs/fish/{functions,completions,conf.d}
           mkdir -p /usr/share/nginx/html/configs/nvim/lua/{config,plugins}
-          echo "Waiting 5s for volumes to potentially mount config files..."
           sleep 5
-          echo "Copying base files..."
-          [ -f "/config-files/health.txt" ] && cp /config-files/health.txt /usr/share/nginx/html/ || echo "INFO: health.txt not mounted"
-          [ -f "/config-files/starship.toml" ] && cp /config-files/starship.toml /usr/share/nginx/html/configs/ || echo "INFO: starship.toml not mounted"
-          echo "Copying fish files..."
-          [ -f "/config-files/config.fish" ] && cp /config-files/config.fish /usr/share/nginx/html/configs/fish/ || echo "INFO: config.fish not mounted"
-          [ -f "/config-files/fish_variables" ] && cp /config-files/fish_variables /usr/share/nginx/html/configs/fish/ || echo "INFO: fish_variables not mounted"
-          echo "Attempting copy fish functions..." && cp -Lr /config-files/functions/. /usr/share/nginx/html/configs/fish/functions/ && echo "  ✓ Copied fish functions" || echo "  INFO: Failed/missing fish functions"
-          echo "Attempting copy fish completions..." && cp -Lr /config-files/completions/. /usr/share/nginx/html/configs/fish/completions/ && echo "  ✓ Copied fish completions" || echo "  INFO: Failed/missing fish completions"
-          echo "Attempting copy fish conf.d..." && cp -Lr /config-files/confd/. /usr/share/nginx/html/configs/fish/conf.d/ && echo "  ✓ Copied fish conf.d" || echo "  INFO: Failed/missing fish conf.d"
-          echo "Copying nvim config files..."
-          [ -f "/config-files/init.lua" ] && cp /config-files/init.lua /usr/share/nginx/html/configs/nvim/ || echo "INFO: init.lua not mounted"
-          [ -f "/config-files/lazy-lock.json" ] && cp /config-files/lazy-lock.json /usr/share/nginx/html/configs/nvim/ || echo "INFO: lazy-lock.json not mounted"
-          echo "Attempting copy nvim config dir..." && cp -Lr /config-files/config/. /usr/share/nginx/html/configs/nvim/lua/config/ && echo "  ✓ Copied nvim config dir" || echo "  INFO: Failed/missing nvim config dir"
-          echo "Attempting copy nvim plugins dir..." && cp -Lr /config-files/plugins/. /usr/share/nginx/html/configs/nvim/lua/plugins/ && echo "  ✓ Copied nvim plugins dir" || echo "  INFO: Failed/missing nvim plugins dir"
+          [ -f "/config-files/health.txt" ] && cp /config-files/health.txt /usr/share/nginx/html/
+          [ -f "/config-files/starship.toml" ] && cp /config-files/starship.toml /usr/share/nginx/html/configs/
+          [ -f "/config-files/config.fish" ] && cp /config-files/config.fish /usr/share/nginx/html/configs/fish/
+          [ -f "/config-files/fish_variables" ] && cp /config-files/fish_variables /usr/share/nginx/html/configs/fish/
+          cp -Lr /config-files/functions/. /usr/share/nginx/html/configs/fish/functions/ 2>/dev/null || true
+          cp -Lr /config-files/completions/. /usr/share/nginx/html/configs/fish/completions/ 2>/dev/null || true
+          cp -Lr /config-files/confd/. /usr/share/nginx/html/configs/fish/conf.d/ 2>/dev/null || true
+          [ -f "/config-files/init.lua" ] && cp /config-files/init.lua /usr/share/nginx/html/configs/nvim/
+          [ -f "/config-files/lazy-lock.json" ] && cp /config-files/lazy-lock.json /usr/share/nginx/html/configs/nvim/
+          cp -Lr /config-files/config/. /usr/share/nginx/html/configs/nvim/lua/config/ 2>/dev/null || true
+          cp -Lr /config-files/plugins/. /usr/share/nginx/html/configs/nvim/lua/plugins/ 2>/dev/null || true
           echo 'server { listen 80; server_name localhost; root /usr/share/nginx/html; autoindex on; charset utf-8; location / { try_files \$uri \$uri/ =404; } }' > /etc/nginx/conf.d/default.conf
-          echo "Contents served by Nginx:" && find /usr/share/nginx/html/configs -type f | sort
-          echo "Starting Nginx..."; nginx -g "daemon off;"
+          nginx -g "daemon off;"
         ports: [{ containerPort: 80 }]
         readinessProbe: { httpGet: { path: /health.txt, port: 80 }, initialDelaySeconds: 8, periodSeconds: 5, failureThreshold: 3 }
         volumeMounts:
@@ -379,15 +294,21 @@ spec:
       - { name: nvim-plugins-volume, configMap: { name: nvim-plugin-files, optional: true } }
 EOF
 
-# Create entrypoint script definition (Handles nvim cache copy from mount)
+# Create entrypoint script definition (with pacman cache support)
 cat > entrypoint.sh << 'EOF'
 #!/bin/bash
-echo "===== Dev Container Setup ====="; echo "Date: $(date)"
-echo "[1/5] Updating package database..."; pacman -Sy --noconfirm --quiet
-echo "[2/5] Installing core packages..."; pacman -S --noconfirm --needed base-devel fish neovim git sudo curl wget python python-pip nodejs npm --quiet
-echo "[3/5] Installing additional CLI tools..."; pacman -S --noconfirm --needed ripgrep fd bat starship fzf eza tmux unzip --quiet
-# Note: Removed pip install pynvim - assume managed by nvim/mason
-echo "[4/5] Creating user and setting up environment..."
+
+# Set up pacman cache from mounted volume
+if [ -d "/pacman-cache-mnt" ] && [ "$(ls -A /pacman-cache-mnt 2>/dev/null)" ]; then
+    mkdir -p /var/cache/pacman/pkg
+    cp -a /pacman-cache-mnt/* /var/cache/pacman/pkg/ 2>/dev/null
+    echo "Pacman cache loaded from mounted volume"
+fi
+
+# Update package database and install packages
+pacman -Sy --noconfirm --quiet
+pacman -S --noconfirm --needed --noprogress base-devel fish neovim git sudo curl wget python python-pip nodejs npm --quiet
+pacman -S --noconfirm --needed --noprogress ripgrep fd bat starship fzf eza tmux unzip --quiet
 
 # Create user 'nesh'
 useradd -m -s /usr/bin/fish nesh
@@ -397,8 +318,7 @@ echo "nesh:nesh" | chpasswd
 # Create ROOT-LEVEL sync command
 cat > /usr/local/bin/sync-config << 'END_SYNC'
 #!/bin/bash
-echo "Running config *file* sync as $(whoami)... (Nvim plugins are copied at startup)"
-/fetch-configs.sh # Runs the fetch script for config files only
+/fetch-configs.sh
 END_SYNC
 chmod +x /usr/local/bin/sync-config
 
@@ -407,13 +327,12 @@ mkdir -p /home/nesh/.config/fish /home/nesh/.config/nvim /home/nesh/.local/bin
 cat > /home/nesh/.config/fish/config.fish << 'END_FISH_CONF'
 # Basic fish setup for nesh user
 set -gx PATH $HOME/.local/bin $PATH
-set fish_greeting "Dev Container Ready! Nvim plugins copied from host cache. Run 'sync-config' to refresh dotfiles (config only)."
+set fish_greeting "Dev Container Ready! Run 'sync-config' to refresh dotfiles manually."
 
 # Function available to nesh user to run the root-level script
 function sync-config
-    echo "Fetching latest config files..."
-    sudo /usr/local/bin/sync-config # Use sudo to run the root-level script
-    echo "Done! Reload your shell or source configs if needed."
+    sudo /usr/local/bin/sync-config
+    source ~/.config/fish/config.fish
 end
 
 # Common aliases
@@ -428,61 +347,34 @@ source_fish_configs # Run sourcing once on startup
 END_FISH_CONF
 
 # --- Neovim Plugin Cache Handling ---
-echo "[5/5] Setting up Neovim plugin cache for user nesh..."
 NVIM_CACHE_MOUNTPOINT="/nvim-plugins-cache-mnt"
 NVIM_USER_SHARE_DIR="/home/nesh/.local/share/nvim"
 
 mkdir -p "$NVIM_USER_SHARE_DIR" # Ensure target dir exists
 
 if [ -d "$NVIM_CACHE_MOUNTPOINT" ] && [ "$(ls -A $NVIM_CACHE_MOUNTPOINT)" ]; then
-    echo "  Copying mounted Neovim plugin cache from $NVIM_CACHE_MOUNTPOINT to $NVIM_USER_SHARE_DIR..."
     # Copy contents, preserving structure (-T avoids creating mountpoint dir inside target)
     cp -aT "$NVIM_CACHE_MOUNTPOINT" "$NVIM_USER_SHARE_DIR"
-    echo "  ✓ Plugin cache copied."
-else
-    echo "  WARN: Neovim plugin cache mountpoint $NVIM_CACHE_MOUNTPOINT is empty or missing. Neovim might download plugins on first run."
+fi
+
+# Copy nvim runtime files from mounted volume
+if [ -d "/nvim-runtime-mnt" ] && [ "$(ls -A /nvim-runtime-mnt)" ]; then
+    mkdir -p /usr/share/nvim/runtime
+    cp -aT "/nvim-runtime-mnt" /usr/share/nvim/runtime/
 fi
 
 # Set ownership for nesh user's config and data dirs
 chown -R nesh:nesh /home/nesh/.config /home/nesh/.local
 
-# Initial config *file* fetch attempt
-echo "Testing connection to config-server for initial config file fetch...";
-if curl -s --connect-timeout 5 --retry 3 --retry-delay 5 --retry-max-time 30 http://config-server/health.txt; then
-    echo "✓ Connected. Running initial config file fetch as root..."; /fetch-configs.sh
-else
-    echo "× Cannot connect to config-server yet. This is normal during initial setup."
-    echo "  Run 'sync-config' manually inside the container later to get latest config files."
-fi
-
-# Create MOTD
-cat > /etc/motd << 'END_MOTD'
-
-Welcome to your Kubernetes Development Environment!
---------------------------------------------------
- Container Initialized: $(date)
- Neovim plugin cache copied from host cache during startup.
---------------------------------------------------
-Available commands:
-  * sync-config  - Update config files (fish, nvim config, starship) from the server.
-  * su - nesh    - Switch to 'nesh' user (fish shell, password: nesh)
-Notes:
-  - Neovim plugins are COPIED from the host cache prepared by run.sh at container start.
-  - Run 'sync-config' if you need to fetch updated *configuration* files.
-  - To update plugins: Update host cache (~/.local/share/nvim) and re-run './run.sh'.
---------------------------------------------------
-END_MOTD
-
-echo "===== Dev Container Setup Complete ====="
-cat /etc/motd
-echo "Starting bash shell as root. Use 'su - nesh' to switch user."
+# Auto-run sync-config after a short delay to ensure config server is ready
+(sleep 10 && echo "Running initial sync-config..." && /usr/local/bin/sync-config && echo "Initial config sync complete") &
 
 # Keep container running
 exec sleep infinity
 EOF
 chmod +x entrypoint.sh
 
-# Create dev container definition (Using hostPath to make cache available for copying)
+# Create dev container definition with activated volume mounts
 cat > k8s-dev-container.yaml << EOF
 apiVersion: apps/v1
 kind: Deployment
@@ -507,41 +399,39 @@ spec:
         volumeMounts:
         - { name: entrypoint-script, mountPath: /entrypoint.sh, subPath: entrypoint.sh }
         - { name: fetch-script, mountPath: /fetch-configs.sh, subPath: fetch-configs.sh }
-        # Mount the host's prepared nvim plugin cache to a temporary location for copying
-        - { name: nvim-plugins-cache-volume, mountPath: /nvim-plugins-cache-mnt, readOnly: true } # ReadOnly is safer
-        # Optional: Mount pacman cache
-        # - { name: pacman-cache-volume, mountPath: /var/cache/pacman/pkg }
+        # Mount the prepared nvim plugin cache
+        - { name: nvim-plugins-cache-volume, mountPath: /nvim-plugins-cache-mnt, readOnly: true }
+        # Mount nvim runtime files
+        - { name: nvim-runtime-volume, mountPath: /nvim-runtime-mnt, readOnly: true }
+        # Mount pacman cache
+        - { name: pacman-cache-volume, mountPath: /pacman-cache-mnt, readOnly: true }
       volumes:
       - { name: entrypoint-script, configMap: { name: entrypoint-script, defaultMode: 0755 } }
       - { name: fetch-script, configMap: { name: fetch-script, defaultMode: 0755 } }
-      # Define the hostPath volume for the nvim plugin cache
-      # IMPORTANT: This path MUST be accessible by the Kubelet/Minikube VM.
-      # Running run.sh from inside your home directory is usually sufficient.
       - name: nvim-plugins-cache-volume
         hostPath:
-          path: "/mnt/k8s-dev/nvim-plugins-cache" # Uses the absolute path on the host where run.sh created the local cache copy
-          type: DirectoryOrCreate # Creates the dir if it doesn't exist on the host node (useful but check permissions)
-      # Optional: Define pacman cache volume
-      # - { name: pacman-cache-volume, hostPath: { path: $(pwd)/$LOCAL_ARCH_CACHE/pacman-cache, type: DirectoryOrCreate } }
+          path: "/mnt/k8s-dev/nvim-plugins-cache"
+          type: DirectoryOrCreate
+      - name: nvim-runtime-volume
+        hostPath:
+          path: "/mnt/k8s-dev/nvim-runtime"
+          type: DirectoryOrCreate
+      - name: pacman-cache-volume
+        hostPath:
+          path: "/mnt/k8s-dev/arch-packages/pacman-cache"
+          type: DirectoryOrCreate
 EOF
-echo "✓ Kubernetes definitions created."
 
-# --- Step 5: Apply Kubernetes Resources ---
-echo -e "\n[5/7] Applying Kubernetes resources..."
-
-echo "Cleaning up existing resources (if any)..."
+# --- Step 4: Apply Kubernetes Resources ---
 kubectl delete namespace dev-environment --ignore-not-found=true --wait=true # Wait for deletion
-
-echo "Creating namespace..."
 kubectl apply -f k8s-namespace.yaml
 sleep 2
 
-echo "Creating ConfigMaps..."
 kubectl create configmap fetch-script --from-file=fetch-configs.sh -n dev-environment
 kubectl create configmap health-check --from-file=health.txt -n dev-environment
 kubectl create configmap entrypoint-script --from-file=entrypoint.sh -n dev-environment
 
-# ConfigMaps for configs (unchanged)
+# ConfigMaps for configs
 [ -f "$LOCAL_STARSHIP_FILE" ] && kubectl create configmap starship-config --from-file="$LOCAL_STARSHIP_FILE" -n dev-environment
 [ -f "$LOCAL_FISH_DIR/config.fish" ] && kubectl create configmap fish-config --from-file=config.fish="$LOCAL_FISH_DIR/config.fish" -n dev-environment
 [ -f "$LOCAL_FISH_DIR/fish_variables" ] && kubectl create configmap fish-variables --from-file=fish_variables="$LOCAL_FISH_DIR/fish_variables" -n dev-environment
@@ -552,96 +442,46 @@ kubectl create configmap entrypoint-script --from-file=entrypoint.sh -n dev-envi
 [ -f "$LOCAL_NVIM_DIR/lazy-lock.json" ] && kubectl create configmap nvim-lazy-lock --from-file=lazy-lock.json="$LOCAL_NVIM_DIR/lazy-lock.json" -n dev-environment
 [ -d "$LOCAL_NVIM_DIR/lua/config" ] && [ "$(ls -A "$LOCAL_NVIM_DIR/lua/config" 2>/dev/null)" ] && kubectl create configmap nvim-config-files --from-file="$LOCAL_NVIM_DIR/lua/config/" -n dev-environment
 [ -d "$LOCAL_NVIM_DIR/lua/plugins" ] && [ "$(ls -A "$LOCAL_NVIM_DIR/lua/plugins" 2>/dev/null)" ] && kubectl create configmap nvim-plugin-files --from-file="$LOCAL_NVIM_DIR/lua/plugins/" -n dev-environment
-echo "✓ ConfigMaps created."
 
-echo "Creating config-server..."
+# Apply Kubernetes resources
 kubectl apply -f k8s-config-server.yaml
-
-echo "Creating dev-container..."
 kubectl apply -f k8s-dev-container.yaml
-echo "✓ Kubernetes resources applied."
 
-# --- Step 6: Wait for Resources ---
-echo -e "\n[6/7] Waiting for Kubernetes resources to be ready..."
-
+# --- Step 5: Wait for Resources ---
 echo "Waiting for config-server pod..."
 if ! kubectl wait --for=condition=ready pod -l app=config-server -n dev-environment --timeout=120s; then
-    echo "⚠️ Config server pod timed out."
     CONFIG_POD=$(kubectl get pods -n dev-environment -l app=config-server -o jsonpath="{.items[0].metadata.name}" 2>/dev/null)
     [ -n "$CONFIG_POD" ] && kubectl logs -n dev-environment "$CONFIG_POD" --tail=50
 else
-    echo "✓ Config-server pod is ready."
     CONFIG_POD=$(kubectl get pods -n dev-environment -l app=config-server -o jsonpath="{.items[0].metadata.name}")
 fi
-[ -z "$CONFIG_POD" ] && CONFIG_POD=$(kubectl get pods -n dev-environment -l app=config-server -o jsonpath="{.items[0].metadata.name}" 2>/dev/null) # Ensure name is captured
+[ -z "$CONFIG_POD" ] && CONFIG_POD=$(kubectl get pods -n dev-environment -l app=config-server -o jsonpath="{.items[0].metadata.name}" 2>/dev/null)
 
 echo "Waiting for dev container deployment rollout..."
 if ! kubectl rollout status deployment/dev-container -n dev-environment --timeout=240s; then
-    echo "⚠️ Dev container deployment timed out."
     kubectl get pods -n dev-environment -l app=dev-container -o wide
     DEV_POD=$(kubectl get pods -n dev-environment -l app=dev-container -o jsonpath="{.items[0].metadata.name}" 2>/dev/null)
     [ -n "$DEV_POD" ] && kubectl describe pod -n dev-environment "$DEV_POD" && kubectl logs -n dev-environment "$DEV_POD" --tail=50
 else
-    echo "✓ Dev container deployment complete."
     DEV_POD=$(kubectl get pods -n dev-environment -l app=dev-container -o jsonpath="{.items[0].metadata.name}")
 fi
-echo "✓ Resource readiness check complete."
 
-# --- Step 7: Final Checks and Instructions ---
-echo -e "\n[7/7] Final checks and instructions..."
-
-# Test connectivity and check nvim setup in container
-if [ -n "$DEV_POD" ]; then
-    echo "Checking nvim setup in dev container ($DEV_POD)..."
-    sleep 5 # Give entrypoint/cache copy time
-    # Check if nvim share dir exists and has content (indicates cache copy worked)
-    if kubectl exec -n dev-environment "$DEV_POD" -- test -d /home/nesh/.local/share/nvim && \
-        kubectl exec -n dev-environment "$DEV_POD" -- find /home/nesh/.local/share/nvim -mindepth 1 | grep -q .; then
-        echo "  ✓ Found populated /home/nesh/.local/share/nvim (plugin cache copied successfully)."
-    else
-        echo "  ⚠️ /home/nesh/.local/share/nvim appears empty or missing. Check logs & hostPath mount."
-        kubectl exec -n dev-environment "$DEV_POD" -- ls -la /nvim-plugins-cache-mnt # Check mountpoint content
-    fi
-    # Check if nvim config files exist (indicates sync-config fetch worked or fallback created)
-    if kubectl exec -n dev-environment "$DEV_POD" -- test -f /home/nesh/.config/nvim/init.lua; then
-        echo "  ✓ Found /home/nesh/.config/nvim/init.lua (config files likely fetched or fallback exists)."
-    else
-        echo "  ⚠️ Did not find /home/nesh/.config/nvim/init.lua. Check config-server connection and run 'sync-config' manually if needed."
-    fi
-else
-    echo "Skipping final checks as dev container pod name is unknown."
-fi
-
-# Print usage instructions
+# --- Step 6: Final Instructions ---
 echo -e "\n=================================================="
 echo "  Kubernetes Development Environment Setup Complete!"
 echo "=================================================="
-echo -e "\n===== USAGE INSTRUCTIONS ====="
+
 if [ -n "$DEV_POD" ]; then
     echo "To connect to your dev container:"
     echo "  kubectl exec -it -n dev-environment $DEV_POD -- bash"
     echo ""
     echo "Inside the container:"
     echo "  • Run 'su - nesh' to switch to nesh user (fish shell, password: nesh)"
-    echo "  • Nvim plugins were COPIED from the host cache at startup."
-    echo "  • Run 'sync-config' ONLY if you need to refresh *config files* (fish, nvim config, starship)."
-    echo ""
-    echo "Troubleshooting:"
-    echo "  - If nvim plugins seem missing: Check host path '$PWD/$LOCAL_NVIM_PLUGINS' exists and has content. Check dev container logs ('kubectl logs -n dev-environment $DEV_POD') for copy errors (Step [5/5]). Ensure you ran run.sh from a directory where minikube can access the path."
-    echo "  - If nvim *config* seems missing: Check config-server logs ('kubectl logs -n dev-environment $CONFIG_POD') and run 'sync-config' inside the container."
-    echo "  - Container restarts/OOM: 'kubectl delete ...', adjust resources in k8s-dev-container.yaml, 'kubectl apply ...'"
+    echo "  • Configs are automatically synced at startup"
+    echo "  • Run 'sync-config' if you need to refresh config files manually"
 else
-    echo "⚠️ Could not determine dev container pod name. Use 'kubectl get pods -n dev-environment' to find it."
-    echo "   Then connect using: kubectl exec -it -n dev-environment <pod-name> -- bash"
-fi
-echo ""
-echo "To check config-server files (if pod name was found):"
-if [ -n "$CONFIG_POD" ]; then
-    echo "  kubectl port-forward -n dev-environment $CONFIG_POD 8080:80 &"
-    echo "  # Wait a second, then check e.g., http://localhost:8080/configs/nvim/init.lua"
-    echo "  # Kill port-forward when done: kill %1"
-else
-    echo "  (Skipping port-forward example as config-server pod name unknown)"
+    echo "Could not determine dev container pod name. Use 'kubectl get pods -n dev-environment' to find it."
+    echo "Then connect using: kubectl exec -it -n dev-environment <pod-name> -- bash"
 fi
 echo ""
 echo "To remove everything:"
